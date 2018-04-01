@@ -175,6 +175,7 @@ function extractProjectsConfig(config: CliConfig): JsonObject {
       const name = app.name || defaultAppName;
       const outDir = app.outDir || defaults.outDir;
       const appRoot = app.root || defaults.appRoot;
+      const platform = app.platform || 'browser';
 
       const project: JsonObject = {
         root: '',
@@ -202,20 +203,24 @@ function extractProjectsConfig(config: CliConfig): JsonObject {
       const buildOptions: JsonObject = {
         // Make outputPath relative to root.
         outputPath: outDir,
-        index: appRoot + '/' + app.index || defaults.index,
         main: appRoot + '/' + app.main || defaults.main,
         polyfills: appRoot + '/' + app.polyfills || defaults.polyfills,
         tsConfig: appRoot + '/' + app.tsconfig || defaults.tsConfig,
       };
 
-      buildOptions.assets = (app.assets || []).map((asset: string | JsonObject) =>
-        typeof asset === 'string'
-          ? { glob: appRoot + '/' + asset }
-          : appRoot + '/' + asset);
-      buildOptions.styles = (app.styles || []).map(extraEntryMapper);
-      buildOptions.scripts = (app.scripts || []).map(extraEntryMapper);
+      if (platform === 'browser') {
+        buildOptions.index = appRoot + '/' + app.index || defaults.index;
+
+        buildOptions.assets = (app.assets || []).map((asset: string | JsonObject) =>
+          typeof asset === 'string'
+            ? { glob: appRoot + '/' + asset }
+            : appRoot + '/' + asset);
+        buildOptions.styles = (app.styles || []).map(extraEntryMapper);
+        buildOptions.scripts = (app.scripts || []).map(extraEntryMapper);
+      }
+
       architect.build = {
-        builder: `${builderPackage}:browser`,
+        builder: `${builderPackage}:${platform}`,
         options: buildOptions,
         configurations: {
           production: {
@@ -228,133 +233,139 @@ function extractProjectsConfig(config: CliConfig): JsonObject {
             extractLicenses: true,
             vendorChunk: false,
             buildOptimizer: true,
-          },
+          }
         },
       };
 
-      // Serve target
-      const serveOptions: JsonObject = {
-        browserTarget: `${name}:build`,
-      };
-      architect.serve = {
-        builder: `${builderPackage}:dev-server`,
-        options: serveOptions,
-        configurations: {
-          production: {
-            browserTarget: `${name}:build`,
+      if (platform === 'browser') {
+        // Serve target
+        const serveOptions: JsonObject = {
+          browserTarget: `${name}:build`,
+        };
+        architect.serve = {
+          builder: `${builderPackage}:dev-server`,
+          options: serveOptions,
+          configurations: {
+            production: {
+              browserTarget: `${name}:build`,
+            },
           },
-        },
-      };
+        };
 
-      // Extract target
-      const extractI18nOptions: JsonObject = { browserTarget: `${name}:build` };
-      architect['extract-i18n'] = {
-        builder: `${builderPackage}:extract-i18n`,
-        options: extractI18nOptions,
-      };
+        // Extract target
+        const extractI18nOptions: JsonObject = { browserTarget: `${name}:build` };
+        architect['extract-i18n'] = {
+          builder: `${builderPackage}:extract-i18n`,
+          options: extractI18nOptions,
+        };
 
-      const karmaConfig = config.test && config.test.karma
+        const karmaConfig = config.test && config.test.karma
           ? config.test.karma.config || ''
           : '';
         // Test target
-      const testOptions: JsonObject = {
+        const testOptions: JsonObject = {
           main: appRoot + '/' + app.test || defaults.test,
           polyfills: appRoot + '/' + app.polyfills || defaults.polyfills,
           // Make karmaConfig relative to root.
           karmaConfig,
         };
-      if (app.testTsconfig) {
+        if (app.testTsconfig) {
           testOptions.tsConfig = appRoot + '/' + app.testTsconfig;
         }
-      testOptions.scripts = (app.scripts || []).map(extraEntryMapper);
-      testOptions.styles = (app.styles || []).map(extraEntryMapper);
-      testOptions.assets = (app.assets || []).map((asset: string | JsonObject) =>
+        testOptions.scripts = (app.scripts || []).map(extraEntryMapper);
+        testOptions.styles = (app.styles || []).map(extraEntryMapper);
+        testOptions.assets = (app.assets || []).map((asset: string | JsonObject) =>
           typeof asset === 'string'
-          ? { glob: appRoot + '/' + asset }
-          : appRoot + '/' + asset);
+            ? { glob: appRoot + '/' + asset }
+            : appRoot + '/' + asset);
 
-      if (karmaConfig) {
-        architect.test = {
-          builder: `${builderPackage}:karma`,
-          options: testOptions,
-        };
-      }
-
-      const tsConfigs: string[] = [];
-      const excludes: string[] = [];
-      if (config && config.lint && Array.isArray(config.lint)) {
-        config.lint.forEach(lint => {
-          tsConfigs.push(lint.project);
-          if (lint.exclude) {
-            if (typeof lint.exclude === 'string') {
-              excludes.push(lint.exclude);
-            } else {
-              lint.exclude.forEach(ex => excludes.push(ex));
-            }
-          }
-        });
-      }
-
-      const removeDupes = (items: string[]) => items.reduce((newItems, item) => {
-        if (newItems.indexOf(item) === -1) {
-          newItems.push(item);
+        if (karmaConfig) {
+          architect.test = {
+            builder: `${builderPackage}:karma`,
+            options: testOptions,
+          };
         }
 
-        return newItems;
-      }, <string[]> []);
+        const tsConfigs: string[] = [];
+        const excludes: string[] = [];
+        if (config && config.lint && Array.isArray(config.lint)) {
+          config.lint.forEach(lint => {
+            tsConfigs.push(lint.project);
+            if (lint.exclude) {
+              if (typeof lint.exclude === 'string') {
+                excludes.push(lint.exclude);
+              } else {
+                lint.exclude.forEach(ex => excludes.push(ex));
+              }
+            }
+          });
+        }
+
+        const removeDupes = (items: string[]) => items.reduce((newItems, item) => {
+          if (newItems.indexOf(item) === -1) {
+            newItems.push(item);
+          }
+
+          return newItems;
+        }, <string[]> []);
 
         // Tslint target
-      const lintOptions: JsonObject = {
-        tsConfig: removeDupes(tsConfigs).filter(t => t.indexOf('e2e') === -1),
-        exclude: removeDupes(excludes),
-      };
-      architect.lint = {
+        const lintOptions: JsonObject = {
+          tsConfig: removeDupes(tsConfigs).filter(t => t.indexOf('e2e') === -1),
+          exclude: removeDupes(excludes),
+        };
+        architect.lint = {
           builder: `${builderPackage}:tslint`,
           options: lintOptions,
         };
 
-      const e2eProject: JsonObject = {
-        root: project.root,
-        projectType: 'application',
-        cli: {},
-        schematics: {},
-      };
+        const e2eProject: JsonObject = {
+          root: project.root,
+          projectType: 'application',
+          cli: {},
+          schematics: {},
+        };
 
-      const e2eArchitect: JsonObject = {};
+        const e2eArchitect: JsonObject = {};
 
-      // tslint:disable-next-line:max-line-length
-      const protractorConfig = config && config.e2e && config.e2e.protractor && config.e2e.protractor.config
-        ? config.e2e.protractor.config
-        : '';
-      const e2eOptions: JsonObject = {
-        protractorConfig: protractorConfig,
-        devServerTarget: `${name}:serve`,
-      };
-      const e2eTarget: JsonObject = {
-        builder: `${builderPackage}:protractor`,
-        options: e2eOptions,
-      };
+        // tslint:disable-next-line:max-line-length
+        const protractorConfig = config && config.e2e && config.e2e.protractor && config.e2e.protractor.config
+          ? config.e2e.protractor.config
+          : '';
+        const e2eOptions: JsonObject = {
+          protractorConfig: protractorConfig,
+          devServerTarget: `${name}:serve`,
+        };
+        const e2eTarget: JsonObject = {
+          builder: `${builderPackage}:protractor`,
+          options: e2eOptions,
+        };
 
-      e2eArchitect.e2e = e2eTarget;
-      const e2eLintOptions: JsonObject = {
-        tsConfig: removeDupes(tsConfigs).filter(t => t.indexOf('e2e') !== -1),
-        exclude: removeDupes(excludes),
-      };
-      const e2eLintTarget: JsonObject = {
-        builder: `${builderPackage}:tslint`,
-        options: e2eLintOptions,
-      };
-      e2eArchitect.lint = e2eLintTarget;
-      if (protractorConfig) {
-        e2eProject.architect = e2eArchitect;
+        e2eArchitect.e2e = e2eTarget;
+        const e2eLintOptions: JsonObject = {
+          tsConfig: removeDupes(tsConfigs).filter(t => t.indexOf('e2e') !== -1),
+          exclude: removeDupes(excludes),
+        };
+        const e2eLintTarget: JsonObject = {
+          builder: `${builderPackage}:tslint`,
+          options: e2eLintOptions,
+        };
+        e2eArchitect.lint = e2eLintTarget;
+        if (protractorConfig) {
+          e2eProject.architect = e2eArchitect;
+        }
+
+        return { name, project, e2eProject };
+      } else {
+        return { name, project, e2eProject: undefined };
       }
-
-      return { name, project, e2eProject };
     })
     .reduce((projects, mappedApp) => {
       const {name, project, e2eProject} = mappedApp;
       projects[name] = project;
-      projects[name + '-e2e'] = e2eProject;
+      if (e2eProject !== undefined) {
+        projects[name + '-e2e'] = e2eProject;
+      }
 
       return projects;
     }, {} as JsonObject);
